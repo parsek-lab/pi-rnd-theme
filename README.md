@@ -53,4 +53,4 @@ node test-integration.cjs <path-to>/node_modules/@earendil-works/pi-coding-agent
 
 ## Attribution
 
-`dark.json` and `light.json` are based on Pi's built-in themes (`@earendil-works/pi-coding-agent`, declared as MIT-licensed in its `package.json`). This repository does not yet declare its own license.
+`dark.json` and `light.json` are based on Pi's built-in themes (`@earendil-works/pi-coding-agent`, declared as MIT-licensed in its `package.json`). See `THIRD_PARTY_NOTICES.md` for the upstream MIT notice. This repository does not yet declare its own license.
