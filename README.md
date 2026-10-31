@@ -5,16 +5,14 @@ Pi extension: generate a random color palette for each working directory (`ctx.c
 ## Install
 
 ```bash
-pi install npm:pi-rnd-theme
+pi install git:github.com/parsek-lab/pi-rnd-theme
 ```
 
-To pin a version, use `pi install npm:pi-rnd-theme@0.1.0`. To try it for one invocation without changing settings:
+To try it for one invocation without changing settings:
 
 ```bash
-pi -e npm:pi-rnd-theme
+pi -e git:github.com/parsek-lab/pi-rnd-theme
 ```
-
-Installing from Git also works: `pi install git:github.com/parsek-lab/pi-rnd-theme`.
 
 From a local clone, use `pi -e ./index.ts` or `pi install ./path/to/pi-rnd-theme`. Run `/reload` after installing.
 
@@ -23,7 +21,7 @@ From a local clone, use `pi -e ./index.ts` or `pi install ./path/to/pi-rnd-theme
 Run `/rnd-theme` to open a centered modal with the controls and a live, contextual preview. It shows a **static sample Pi session**: a user request, session note, assistant Markdown (heading, list, quote, link, and inline code), a TypeScript code block with syntax highlighting, pending/failed/successful tool output, a test fix as a diff, and a final response. A small session-controls footer demonstrates selection, search, scroll, thinking levels, and bash mode. All theme color roles are represented in context rather than as a token-name list. This sample never executes tools or changes project files. The preview is restyled on every render as you change the palette, mode, or saturation; no restart is needed. Use PgUp/PgDn to browse it on short terminals.
 
 - **randomize** — regenerate the palette and keep the menu open. Press Esc to close it.
-- **mode** — press ←/→ to cycle through `system`, `dark`, and `light`, or press Enter to open the submenu. The submenu also supports ←/→. `system` detects the terminal appearance through Pi and falls back to dark. The label shows the resolved appearance: `system (dark)` or `system (light)`. Changing mode preserves the chosen hues and only adapts the palette to the new background.
+- **mode** — press ←/→ to cycle through `system`, `dark`, and `light`. Enter has no effect on this row (there is no submenu). `system` detects the terminal appearance through Pi and falls back to dark. The label shows the resolved appearance: `system (dark)` or `system (light)`. Changing mode preserves the chosen hues and only adapts the palette to the new background.
 - **saturation: 50** — select this row and press ←/→ to decrease/increase color intensity in steps of 5, from 20 to 100. The default is 50; it preserves the original saturation of Pi's built-in themes.
 
 - **demo: show** — press ←/→ to toggle `show`/`hide` for the preview without changing the palette. Each menu opens with the demo visible; hiding also removes the preview scroll hint.

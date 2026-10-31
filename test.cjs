@@ -112,11 +112,14 @@ const { renderPreview } = jiti("./preview.ts");
     screen.handleInput("pageUp");
     screen.handleInput("pageUp");
     screen.handleInput("down"); // mode
-    screen.handleInput("enter"); // submenu
-    assert.match(screen.render(90).join("\n"), /system/);
-    screen.handleInput("up");
-    screen.handleInput("up");
-    screen.handleInput("enter"); // system, terminal unavailable -> dark
+    const modeScreen = screen.render(90).join("\n");
+    screen.handleInput("enter"); // no second page
+    assert.equal(screen.render(90).join("\n"), modeScreen, "Enter on mode must not change page");
+    assert.equal(prefs().mode, "light");
+    assert.doesNotMatch(modeScreen, /Enter select · Esc back|✓/);
+    screen.handleInput("left"); // light -> dark
+    assert.equal(prefs().mode, "dark");
+    screen.handleInput("left"); // dark -> system, terminal unavailable -> dark
     assert.equal(current.appearance, "dark");
     assert.equal(prefs().mode, "system");
     assert.match(screen.render(90).join("\n"), /system \(dark\)/);
@@ -130,13 +133,12 @@ const { renderPreview } = jiti("./preview.ts");
     assert.equal(prefs().mode, "system");
     screen.handleInput("left"); // wraps to light
     assert.equal(prefs().mode, "light");
+    screen.handleInput("enter"); // still no submenu
+    assert.match(screen.render(90).join("\n"), /mode: light/);
     screen.handleInput("right");
-    screen.handleInput("enter"); // mode submenu also supports arrows
-    screen.handleInput("right");
-    assert.equal(prefs().mode, "dark");
-    screen.handleInput("left");
     assert.equal(prefs().mode, "system");
-    screen.handleInput("escape");
+    assert.deepEqual(chosenHues(local().base), chosenHues(chosenBase), "arrow mode changes preserve colors");
+    assert.equal(prefs().mode, "system");
     screen.handleInput("down"); // saturation
     screen.handleInput("left");
     assert.equal(prefs().saturation, 45);

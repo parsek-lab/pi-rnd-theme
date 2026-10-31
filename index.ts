@@ -210,7 +210,6 @@ export default function (pi: ExtensionAPI) {
           return;
         }
         await ctx.ui.custom<void>((tui, _theme, keys, done) => {
-          let page: "main" | "mode" = "main";
           let selected = 0;
           let demo: "show" | "hide" = "show";
           let previewOffset = 0;
@@ -223,11 +222,9 @@ export default function (pi: ExtensionAPI) {
             render(width: number): string[] {
               const theme = ctx.ui.theme;
               const modeLabel = (mode: Mode) => mode === "system" ? `system (${systemAppearance(ctx.ui)})` : mode;
-              const items = page === "main"
-                ? ["randomize", `mode: ${modeLabel(preferences.mode)}  ← →`, `saturation: ${preferences.saturation}  ← →`, `demo: ${demo}  ← →`]
-                : modes.map(mode => `${modeLabel(mode)}${mode === preferences.mode ? " ✓" : ""}`);
+              const items = ["randomize", `mode: ${modeLabel(preferences.mode)}  ← →`, `saturation: ${preferences.saturation}  ← →`, `demo: ${demo}  ← →`];
               const innerWidth = Math.max(1, width - 4);
-              const menu = [theme.fg("accent", page === "main" ? "Random theme" : "Mode"),
+              const menu = [theme.fg("accent", "Random theme"),
                 ...items.map((item, i) => theme.fg(i === selected ? "accent" : "text", `${i === selected ? ">" : " "} ${item}`)),
                 ...(demo === "show" ? ["", theme.fg("accent", "Live theme preview")] : [])];
               const samples = demo === "show" ? renderPreview(theme, innerWidth) : [];
@@ -237,7 +234,7 @@ export default function (pi: ExtensionAPI) {
               previewOffset = Math.max(0, Math.min(previewOffset, samples.length - previewPageSize));
               const body = [...menu, ...samples.slice(previewOffset, previewOffset + previewPageSize),
                 ...(demo === "show" ? [theme.fg("dim", `PgUp/PgDn preview (${previewOffset + 1}–${Math.min(samples.length, previewOffset + previewPageSize)}/${samples.length})`)] : []),
-                theme.fg("dim", page === "main" ? "↑↓ navigate · ←→ adjust · Enter select · Esc close" : "←→ change · Enter select · Esc back")];
+                theme.fg("dim", "↑↓ navigate · ←→ adjust · Enter select · Esc close")];
               const edge = "─".repeat(Math.max(0, width - 2));
               return [theme.fg("border", `┌${edge}┐`), ...body.map(line => {
                 const content = truncateToWidth(line, innerWidth);
@@ -246,21 +243,18 @@ export default function (pi: ExtensionAPI) {
             },
             handleInput(data: string): void {
               try {
-                const size = page === "main" ? main.length : modes.length;
+                const size = main.length;
                 if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown)) {
                   const direction = matchesKey(data, Key.pageDown) ? 1 : -1;
                   previewOffset = Math.max(0, Math.min(Math.max(0, previewLength - previewPageSize), previewOffset + direction * previewPageSize));
                 } else if (keys.matches(data, "tui.select.up")) selected = (selected + size - 1) % size;
                 else if (keys.matches(data, "tui.select.down")) selected = (selected + 1) % size;
-                else if (keys.matches(data, "tui.select.cancel")) {
-                  if (page === "mode") { page = "main"; selected = 1; }
-                  else { done(); return; }
-                } else if (matchesKey(data, Key.left) || matchesKey(data, Key.right)) {
+                else if (keys.matches(data, "tui.select.cancel")) { done(); return; }
+                else if (matchesKey(data, Key.left) || matchesKey(data, Key.right)) {
                   const direction = matchesKey(data, Key.right) ? 1 : -1;
-                  if (page === "mode" || selected === 1) {
+                  if (selected === 1) {
                     const mode = modes[(modes.indexOf(preferences.mode) + direction + modes.length) % modes.length];
                     perform({ ...preferences, mode });
-                    if (page === "mode") selected = modes.indexOf(mode);
                   } else if (selected === 2) {
                     const value = Math.max(20, Math.min(100, preferences.saturation + direction * 5));
                     if (value !== preferences.saturation) perform({ ...preferences, saturation: value });
@@ -268,11 +262,7 @@ export default function (pi: ExtensionAPI) {
                     demo = demo === "show" ? "hide" : "show";
                   } else return;
                 } else if (keys.matches(data, "tui.select.confirm")) {
-                  if (page === "mode") {
-                    perform({ ...preferences, mode: modes[selected] });
-                    page = "main"; selected = 1;
-                  } else if (selected === 0) perform(preferences, true);
-                  else if (selected === 1) { page = "mode"; selected = modes.indexOf(preferences.mode); }
+                  if (selected === 0) perform(preferences, true);
                 } else return;
                 redraw();
               } catch (error) { ctx.ui.notify(`pi-rnd-theme: ${String(error)}`, "error"); }
