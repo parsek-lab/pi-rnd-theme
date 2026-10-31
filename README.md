@@ -53,4 +53,10 @@ node test-integration.cjs <path-to>/node_modules/@earendil-works/pi-coding-agent
 
 ## Attribution
 
-`dark.json` and `light.json` are based on Pi's built-in themes (`@earendil-works/pi-coding-agent`, declared as MIT-licensed in its `package.json`). See `THIRD_PARTY_NOTICES.md` for the upstream MIT notice. This repository does not yet declare its own license.
+`dark.json` and `light.json` are based on Pi's built-in themes (`@earendil-works/pi-coding-agent`, declared as MIT-licensed in its `package.json`). See `THIRD_PARTY_NOTICES.md` for the upstream MIT notice. 
+
+## License
+
+The original code of this project is licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). See `LICENSE`.
+
+The Pi-derived theme files (`dark.json`, `light.json`) remain subject to the upstream MIT License and its copyright notice, reproduced in `THIRD_PARTY_NOTICES.md`. The AGPL does not replace or remove those notices, and no exclusive ownership of the upstream material is claimed.

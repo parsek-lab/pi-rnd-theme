@@ -5,8 +5,10 @@
 which is distributed under the MIT License. The license text below is copied
 from https://raw.githubusercontent.com/earendil-works/pi/main/LICENSE.
 
-This notice applies only to that upstream material. It does not grant or
-declare a license for the other files in this repository.
+This notice applies only to that upstream material. The original code of this
+repository is licensed separately under AGPL-3.0-only (see `LICENSE`); that
+license does not replace or remove the MIT terms and notice below for the
+upstream-derived material.
 
 ---
 
