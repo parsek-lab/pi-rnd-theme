@@ -1,11 +1,27 @@
 {
   "name": "pi-rnd-theme",
   "version": "0.1.0",
-  "private": true,
-  "license": "AGPL-3.0-only",
   "description": "Pi extension: generate a random color palette for each working directory",
-  "keywords": ["pi-package"],
+  "license": "AGPL-3.0-only",
+  "keywords": ["pi-package", "pi-extension", "pi-theme", "theme", "palette"],
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/parsek-lab/pi-rnd-theme.git"
+  },
+  "homepage": "https://github.com/parsek-lab/pi-rnd-theme#readme",
+  "bugs": {
+    "url": "https://github.com/parsek-lab/pi-rnd-theme/issues"
+  },
   "type": "module",
+  "files": [
+    "index.ts",
+    "preview.ts",
+    "dark.json",
+    "light.json",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "pi": {
     "extensions": ["./index.ts"]
   },

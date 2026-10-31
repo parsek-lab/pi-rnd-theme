@@ -5,14 +5,16 @@ Pi extension: generate a random color palette for each working directory (`ctx.c
 ## Install
 
 ```bash
-pi install git:github.com/parsek-lab/pi-rnd-theme
+pi install npm:pi-rnd-theme
 ```
 
-To try it for one invocation without changing settings:
+To pin a version, use `pi install npm:pi-rnd-theme@0.1.0`. To try it for one invocation without changing settings:
 
 ```bash
-pi -e git:github.com/parsek-lab/pi-rnd-theme
+pi -e npm:pi-rnd-theme
 ```
+
+Installing from Git also works: `pi install git:github.com/parsek-lab/pi-rnd-theme`.
 
 From a local clone, use `pi -e ./index.ts` or `pi install ./path/to/pi-rnd-theme`. Run `/reload` after installing.
 
