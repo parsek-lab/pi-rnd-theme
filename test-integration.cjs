@@ -1,6 +1,6 @@
 // Exercise Pi's real theme controller, including the settings reapplication after session_start.
 const assert = require("node:assert/strict");
-const { mkdtempSync, mkdirSync, readFileSync, rmSync } = require("node:fs");
+const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 const { tmpdir } = require("node:os");
 const { pathToFileURL } = require("node:url");
@@ -19,9 +19,13 @@ const { createJiti } = require("jiti");
     const moduleUrl = file => pathToFileURL(join(resolve(packagePath), "dist/modes/interactive/theme", file)).href;
     const themeModule = await import(moduleUrl("theme.js"));
     const { InteractiveThemeController } = await import(moduleUrl("theme-controller.js"));
+    // Use Pi's real Theme class so ui.setTheme() recognises the generated instances.
+    globalThis.__realPiTheme = themeModule.Theme;
+    const shim = join(root, "pi-shim.cjs");
+    writeFileSync(shim, "module.exports = { Theme: globalThis.__realPiTheme, getAgentDir: () => process.env.PI_CODING_AGENT_DIR };");
     const { default: extension } = createJiti(__filename, {
       alias: {
-        "@earendil-works/pi-coding-agent": join(__dirname, "theme-stub.cjs"),
+        "@earendil-works/pi-coding-agent": shim,
         "@earendil-works/pi-tui": join(__dirname, "tui-stub.cjs"),
       },
     })("./index.ts");
@@ -43,9 +47,10 @@ const { createJiti } = require("jiti");
     const ui = {
       get theme() { return themeModule.theme; },
       getTheme: name => themeModule.getThemeByName(name),
-      setTheme(name) {
-        const result = controller.setThemeName(name);
-        if (result.success) setting = name;
+      setTheme(theme) {
+        if (typeof theme !== "string") return controller.setThemeInstance(theme);
+        const result = controller.setThemeName(theme);
+        if (result.success) setting = theme;
         return result;
       },
       notify(message, type) { if (type === "error") throw new Error(message); },
@@ -61,7 +66,7 @@ const { createJiti } = require("jiti");
     const tuiModule = await import(pathToFileURL(join(resolve(packagePath), "../pi-tui/dist/index.js")).href);
     const { renderPreview } = createJiti(__filename, {
       alias: {
-        "@earendil-works/pi-coding-agent": join(__dirname, "theme-stub.cjs"),
+        "@earendil-works/pi-coding-agent": shim,
         "@earendil-works/pi-tui": join(resolve(packagePath), "../pi-tui/dist/index.js"),
       },
     })("./preview.ts");
@@ -70,37 +75,37 @@ const { createJiti } = require("jiti");
     }
     await command("light", ctx);
     await command("randomize", ctx);
-    const selectedName = setting;
+    const selectedTheme = ui.theme;
     const selectedAccent = ui.theme.fg("accent", "test");
     const previewBefore = renderPreview(ui.theme, 90).join("\n");
     const localPath = join(cwd, ".pi", "pi-rnd-theme.json");
     const selectedDocument = readFileSync(localPath, "utf8");
+    const themesDir = join(process.env.PI_CODING_AGENT_DIR, "themes");
+    assert.equal(existsSync(themesDir), false, "no theme files in the discovered directory");
+    assert.match(ui.theme.name, /^pi-rnd-[0-9a-f]{12}$/);
     await command("dark", ctx);
     assert.notEqual(renderPreview(ui.theme, 90).join("\n"), previewBefore, "mode changes must restyle the open preview");
     await command("light", ctx);
     assert.equal(renderPreview(ui.theme, 90).join("\n"), previewBefore);
-    assert.equal(setting, selectedName, "mode changes must not reset the selected colors");
-    assert.equal(readFileSync(localPath, "utf8"), selectedDocument);
-    // Match resource discovery retaining Theme instances from the cached files.
-    themeModule.setRegisteredThemes([themeModule.getThemeByName(selectedName)]);
+    assert.equal(readFileSync(localPath, "utf8"), selectedDocument, "mode changes must not reset the selected colors");
     for (const reason of ["reload", "new"]) {
       loadExtension();
       if (reason === "new") makeController();
       start({ reason }, ctx);
-      controller.applyFromSettings();
-      assert.equal(setting, selectedName);
-      assert.equal(ui.theme.name, selectedName);
+      controller.applyFromSettings(); // Pi re-applies settings.theme after session_start
+      await new Promise(resolve => setTimeout(resolve, 30));
+      assert.equal(ui.theme.name, selectedTheme.name);
       assert.equal(ui.theme.appearance, "light");
       assert.equal(ui.theme.fg("accent", "test"), selectedAccent);
       assert.equal(readFileSync(localPath, "utf8"), selectedDocument);
     }
-    await command("randomize", ctx);
-    assert.notEqual(setting, selectedName, "new palettes must bypass registered-theme cache");
+    for (let i = 0; i < 3; i++) await command("randomize", ctx);
     assert.notEqual(renderPreview(ui.theme, 90).join("\n"), previewBefore, "preview must use the newly selected theme immediately");
     const nextAccent = ui.theme.fg("accent", "test");
-    controller.applyFromSettings();
-    assert.equal(ui.theme.fg("accent", "test"), nextAccent);
-    console.log("OK: real Pi controller, immediate preview restyling, ANSI widths, reload/new and theme cache");
+    assert.notEqual(nextAccent, selectedAccent);
+    assert.equal(existsSync(themesDir), false, "randomize must not create theme files");
+    assert.equal(setting, "dark", "settings.theme must never name a generated theme");
+    console.log("OK: real Pi controller, immediate preview restyling, ANSI widths, reload/new, no discovered theme files");
   } finally {
     controller?.dispose();
     const themeModule = await import(pathToFileURL(join(resolve(packagePath), "dist/modes/interactive/theme/theme.js")).href);

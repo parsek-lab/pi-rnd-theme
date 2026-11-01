@@ -32,7 +32,11 @@ You can also use `/rnd-theme randomize`, `/rnd-theme system`, `/rnd-theme dark`,
 
 - Global `mode` and `saturation`: `<agent-dir>/pi-rnd-theme.json`, where the agent directory defaults to `~/.pi/agent` and honors `PI_CODING_AGENT_DIR`.
 - Single working-directory configuration: `<cwd>/.pi/pi-rnd-theme.json` contains both `base` (the original colors) and `palette` (the applied colors). Keeping the base prevents saturation adjustments from losing the original colors. Existing saturation preferences below 20 are automatically raised to 20.
-- Pi-compatible theme cache: `<agent-dir>/themes/pi-rnd-<directory-hash>-<palette-hash>.json`. The extension selects this theme by name, updating Pi's theme setting so `/reload` and `/new` preserve it. Versioned names prevent stale registered-theme instances from overriding regenerated colors.
+- No theme files are written to `<agent-dir>/themes`. On every `session_start` (startup, reload, new) the extension builds a `Theme` instance from the local palette and applies it with `ctx.ui.setTheme(theme)`. Because Pi does not discover or register it, generated palettes never appear in `pi config`/theme lists and cannot accumulate. Pi re-applies `settings.theme` after reload, so the extension re-asserts its instance shortly after `session_start`; `settings.theme` is not used for generated palettes.
+
+## Migration from earlier versions
+
+Earlier versions wrote `<agent-dir>/themes/pi-rnd-<12 hex>[-<16 hex>].json` for each palette. On session start the extension deletes only regular files (never symlinks) with that exact name whose content matches the generated format (same name as the file, same schema and token set). Other themes, including lookalike names with different content, are left untouched. If `<agent-dir>/settings.json` has `theme` set to a generated name, it is reset to the built-in `dark` or `light` (via `ctx.ui.setTheme`) before deletion, so Pi does not fail to load a missing theme. A project-level `.pi/settings.json` that names a generated theme is not modified.
 
 Existing local palette and base files are read automatically and merged into the single local configuration on the next application. Legacy files are left untouched but no longer written. An existing `<cwd>/.pi/pi-rnd-theme-mode.json` initializes the global mode only when no global preferences exist. System mode is reevaluated on session start or reload.
 

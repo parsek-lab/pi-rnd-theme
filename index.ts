@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync, mkdirSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
+import { readFileSync, mkdirSync, renameSync, writeFileSync, unlinkSync, readdirSync, lstatSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getAgentDir, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, Theme, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderPreview } from "./preview.ts";
 
@@ -147,11 +147,62 @@ function loadBase(cwd: string): Palette | undefined {
   return legacyBase;
 }
 
-function themeCache(palette: Palette): { name: string; path: string } {
-  // Versioned names prevent Pi's registered-theme cache from serving an older palette.
-  const version = createHash("sha256").update(JSON.stringify(palette)).digest("hex").slice(0, 16);
-  const name = `${palette.name}-${version}`;
-  return { name, path: join(getAgentDir(), "themes", `${name}.json`) };
+/** Resolve palette variables and build an in-memory Pi theme; nothing is written to a discovered directory. */
+function buildTheme(palette: Palette, mode: ReturnType<Theme["getColorMode"]>): Theme {
+  const colors = Object.fromEntries(Object.entries(palette.colors).map(([key, value]) => [key, palette.vars[value] ?? value]));
+  return new Theme(colors as never, {} as never, mode, { name: palette.name, appearance: palette.appearance });
+}
+
+// Names written by earlier versions: pi-rnd-<12 hex>-<16 hex>.json inside <agent-dir>/themes.
+const generatedName = /^pi-rnd-[0-9a-f]{12}(?:-[0-9a-f]{16})?$/;
+
+/** True only for a file whose content has the exact shape this extension generated. */
+function isOwnThemeFile(value: unknown, stem: string): boolean {
+  if (!value || typeof value !== "object") return false;
+  const p = value as Partial<Palette>;
+  if (p.name !== stem || (p.appearance !== "dark" && p.appearance !== "light")) return false;
+  const base = templates[p.appearance];
+  return p.$schema === base.$schema && (["vars", "colors", "export"] as const).every(group => {
+    const entries = p[group];
+    return !!entries && typeof entries === "object" &&
+      Object.keys(entries).sort().join("|") === Object.keys(base[group]).sort().join("|") &&
+      Object.values(entries).every(color => typeof color === "string");
+  });
+}
+
+/**
+ * Remove generated theme files from the discovered themes directory and make sure settings.theme does not
+ * keep pointing at a generated name. Foreign files and symlinks are never touched.
+ */
+function migrateGeneratedThemes(ui: UI): void {
+  const dir = join(getAgentDir(), "themes");
+  // 1. Collect own legacy files (none if the directory is missing).
+  const owned: string[] = [];
+  let files: string[] = [];
+  try { files = readdirSync(dir); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  for (const file of files) {
+    const stem = file.endsWith(".json") ? file.slice(0, -5) : "";
+    if (!generatedName.test(stem)) continue;
+    const path = join(dir, file);
+    try {
+      if (!lstatSync(path).isFile()) continue;
+      if (isOwnThemeFile(JSON.parse(readFileSync(path, "utf8")), stem)) owned.push(path);
+    } catch { /* unreadable or invalid: not ours to delete */ }
+  }
+  // 2. Repoint a stale settings.theme first, independent of whether any file is left.
+  const settings = readJson(join(getAgentDir(), "settings.json")) as { theme?: unknown } | undefined;
+  if (typeof settings?.theme === "string" && generatedName.test(settings.theme)) {
+    // Selecting a built-in by name goes through Pi's settings manager and rewrites settings.theme.
+    const result = ui.setTheme(ui.theme.appearance === "light" ? "light" : "dark");
+    if (!result.success) throw new Error(result.error ?? "failed to reset generated theme setting");
+  }
+  // 3. Only now delete files; a failure above leaves them in place.
+  for (const path of owned) {
+    try { unlinkSync(path); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
 }
 
 type UI = ExtensionUIContext;
@@ -171,19 +222,41 @@ function apply(cwd: string, ui: UI, preferences: Preferences, regenerate = false
   base = withAppearance(base, appearance);
   const palette = withSaturation(base, preferences.saturation);
   saveJson(palettePath(cwd), { base, palette });
-  const cached = themeCache(palette);
-  saveJson(cached.path, { ...palette, name: cached.name });
-  // Selecting by name updates Pi's controller and persisted theme setting, not just the in-memory theme.
-  const result = ui.setTheme(cached.name);
+  // A fresh Theme instance per application: never registered, never persisted in settings.
+  active = buildTheme(palette, ui.theme.getColorMode());
+  const result = ui.setTheme(active);
   if (!result.success) throw new Error(result.error ?? "failed to apply theme");
+}
+
+let active: Theme | undefined;
+let timers: ReturnType<typeof setTimeout>[] = [];
+function clearTimers(): void { for (const timer of timers) clearTimeout(timer); timers = []; }
+
+/**
+ * Pi re-applies settings.theme after reload/new, once extensions have handled session_start, which replaces
+ * an in-memory theme. Re-assert ours if that happened.
+ */
+function reassert(ui: UI): void {
+  clearTimers();
+  for (const delay of [0, 100, 500]) {
+    const timer = setTimeout(() => {
+      try { if (active && ui.theme !== active) ui.setTheme(active); } catch { /* UI may be gone */ }
+    }, delay);
+    timer.unref?.();
+    timers.push(timer);
+  }
 }
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
-    try { apply(ctx.cwd, ctx.ui, loadPreferences(ctx.cwd)); }
-    catch (error) { ctx.ui.notify(`pi-rnd-theme: ${String(error)}`, "error"); }
+    try {
+      migrateGeneratedThemes(ctx.ui);
+      apply(ctx.cwd, ctx.ui, loadPreferences(ctx.cwd));
+      reassert(ctx.ui);
+    } catch (error) { ctx.ui.notify(`pi-rnd-theme: ${String(error)}`, "error"); }
   });
+  pi.on("session_shutdown", () => { clearTimers(); });
 
   pi.registerCommand("rnd-theme", {
     description: "Regenerate the palette, select a global mode, or adjust global saturation",

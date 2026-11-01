@@ -1,8 +1,9 @@
 const assert = require("node:assert/strict");
-const { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } = require("node:fs");
+const { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, existsSync, symlinkSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { createJiti } = require("jiti");
+const stub = require("./theme-stub.cjs");
 
 const root = mkdtempSync(join(tmpdir(), "pi-rnd-theme-"));
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
@@ -50,19 +51,27 @@ const { renderPreview } = jiti("./preview.ts");
 
     const legacy = join(cwd, ".pi", "pi-rnd-theme-mode.json");
     writeFileSync(legacy, JSON.stringify({ mode: "light" }));
-    let start, command, screen;
+    let start, shutdown, command, screen;
     let terminalAppearance;
     let savedThemeName = "dark";
+    const settingsWrites = [];
+    const themesDir = join(process.env.PI_CODING_AGENT_DIR, "themes");
     let current = { appearance: "dark", getColorMode: () => "truecolor", fg: (_key, text) => text };
     const notices = [];
     const ui = {
       get theme() { return current; },
       getTheme(name) { assert.equal(name, "system"); return terminalAppearance && { appearance: terminalAppearance }; },
-      setTheme(name) {
-        assert.equal(typeof name, "string", "theme must be selected by name, not just in memory");
-        savedThemeName = name;
-        const saved = JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR, "themes", `${name}.json`), "utf8"));
-        current = { ...saved, getColorMode: () => "truecolor", fg: (_key, text) => text, bg: (_key, text) => text };
+      setTheme(theme) {
+        if (typeof theme === "string") { // built-in selection: Pi persists it in settings.json
+          assert.ok(["dark", "light"].includes(theme), `unexpected named theme ${theme}`);
+          savedThemeName = theme;
+          settingsWrites.push(theme);
+          writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"), JSON.stringify({ theme }));
+          current = { appearance: theme, getColorMode: () => "truecolor", fg: (_key, text) => text, bg: (_key, text) => text };
+          return { success: true };
+        }
+        assert.ok(theme instanceof stub.Theme, "generated palettes must be passed as Theme instances");
+        current = theme;
         return { success: true };
       },
       notify(message, type) { notices.push([message, type]); },
@@ -77,7 +86,7 @@ const { renderPreview } = jiti("./preview.ts");
         await closed;
       },
     };
-    extension({ on(event, handler) { if (event === "session_start") start = handler; }, registerCommand(name, config) { assert.equal(name, "rnd-theme"); command = config.handler; } });
+    extension({ on(event, handler) { if (event === "session_start") start = handler; if (event === "session_shutdown") shutdown = handler; }, registerCommand(name, config) { assert.equal(name, "rnd-theme"); command = config.handler; } });
     const ctx = { mode: "tui", cwd, ui };
     const palettePath = join(cwd, ".pi", "pi-rnd-theme.json");
     const prefPath = join(process.env.PI_CODING_AGENT_DIR, "pi-rnd-theme.json");
@@ -176,7 +185,11 @@ const { renderPreview } = jiti("./preview.ts");
     const savedLocal = readFileSync(palettePath, "utf8");
     for (const reason of ["reload", "new"]) {
       start({ reason }, ctx);
-      ui.setTheme(savedThemeName); // Pi reapplies its persisted theme setting after session_start
+      const generated = current;
+      assert.ok(generated instanceof stub.Theme);
+      current = { appearance: "dark", getColorMode: () => "truecolor" }; // Pi reapplies settings.theme after session_start
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(current, generated, `${reason}: generated theme must be re-asserted`);
       assert.equal(current.appearance, "light");
       assert.equal(readFileSync(palettePath, "utf8"), savedLocal);
     }
@@ -201,6 +214,72 @@ const { renderPreview } = jiti("./preview.ts");
     writeFileSync(prefPath, JSON.stringify({ mode: "system", saturation: 0 }));
     start({ reason: "reload" }, ctx);
     assert.equal(prefs().saturation, 20, "old preferences below the minimum must migrate");
-    console.log("OK: contextual preview, narrow widths, scrolling, demo hide/show, randomize, system mode, saturation minimum 20, persistence, reload/new");
+    // No accumulation or visibility: nothing is ever written to the discovered themes directory.
+    assert.equal(existsSync(themesDir), false, "themes directory must not be created");
+    assert.deepEqual(settingsWrites, [], "settings.theme must not be touched without legacy files");
+    // Migration: remove only own legacy files, repoint a stale settings.theme, keep foreign themes.
+    mkdirSync(themesDir, { recursive: true });
+    const oldFile = join(themesDir, "pi-rnd-0123456789ab-0123456789abcdef.json");
+    const oldPalette = generatePalette(cwd, "dark");
+    writeFileSync(oldFile, JSON.stringify({ ...oldPalette, name: "pi-rnd-0123456789ab-0123456789abcdef" }));
+    const fakeLookalike = join(themesDir, "pi-rnd-aaaaaaaaaaaa-bbbbbbbbbbbbbbbb.json");
+    writeFileSync(fakeLookalike, JSON.stringify({ name: "pi-rnd-aaaaaaaaaaaa-bbbbbbbbbbbbbbbb", colors: {} }));
+    const foreign = join(themesDir, "mine.json");
+    writeFileSync(foreign, JSON.stringify({ name: "mine", colors: {} }));
+    const foreignRnd = join(themesDir, "pi-rnd-custom.json");
+    writeFileSync(foreignRnd, "{}");
+    const target = join(root, "target.json");
+    writeFileSync(target, JSON.stringify({ ...oldPalette, name: "pi-rnd-cccccccccccc-cccccccccccccccc" }));
+    const link = join(themesDir, "pi-rnd-cccccccccccc-cccccccccccccccc.json");
+    symlinkSync(target, link);
+    writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"), JSON.stringify({ theme: "pi-rnd-0123456789ab-0123456789abcdef" }));
+    start({ reason: "startup" }, ctx);
+    assert.equal(existsSync(oldFile), false, "own legacy file removed");
+    assert.equal(existsSync(fakeLookalike), true, "lookalike with foreign content kept");
+    assert.equal(existsSync(foreign), true, "foreign theme kept");
+    assert.equal(existsSync(foreignRnd), true, "non-matching pi-rnd name kept");
+    assert.equal(existsSync(link), true, "symlink kept");
+    assert.equal(existsSync(target), true);
+    assert.equal(settingsWrites.length, 1, "stale settings.theme must be repointed once");
+    assert.ok(["dark", "light"].includes(JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"))).theme));
+    assert.ok(current instanceof stub.Theme);
+    // Unrelated settings.theme is preserved.
+    writeFileSync(join(themesDir, "pi-rnd-111111111111.json"), JSON.stringify({ ...oldPalette, name: "pi-rnd-111111111111" }));
+    writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"), JSON.stringify({ theme: "mine" }));
+    start({ reason: "reload" }, ctx);
+    assert.equal(existsSync(join(themesDir, "pi-rnd-111111111111.json")), false);
+    assert.equal(settingsWrites.length, 1, "foreign settings.theme untouched");
+    assert.equal(JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"))).theme, "mine");
+    // Regression: stale settings.theme must be repointed even when no legacy file exists any more.
+    for (const name of readdirSync(themesDir)) rmSync(join(themesDir, name), { force: true });
+    const writesBefore = settingsWrites.length;
+    writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"), JSON.stringify({ theme: "pi-rnd-dddddddddddd-dddddddddddddddd" }));
+    start({ reason: "startup" }, ctx);
+    assert.equal(settingsWrites.length, writesBefore + 1, "stale name without file must be repointed");
+    assert.ok(["dark", "light"].includes(JSON.parse(readFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"))).theme));
+    // Same when the themes directory itself is gone.
+    rmSync(themesDir, { recursive: true, force: true });
+    writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"), JSON.stringify({ theme: "pi-rnd-eeeeeeeeeeee" }));
+    start({ reason: "reload" }, ctx);
+    assert.equal(settingsWrites.length, writesBefore + 2, "stale name without themes directory must be repointed");
+    assert.equal(existsSync(themesDir), false);
+    // Failed repoint keeps legacy files.
+    mkdirSync(themesDir, { recursive: true });
+    const keep = join(themesDir, "pi-rnd-ffffffffffff.json");
+    writeFileSync(keep, JSON.stringify({ ...oldPalette, name: "pi-rnd-ffffffffffff" }));
+    writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "settings.json"), JSON.stringify({ theme: "pi-rnd-ffffffffffff" }));
+    const realSet = ui.setTheme;
+    ui.setTheme = () => ({ success: false, error: "boom" });
+    start({ reason: "startup" }, ctx);
+    ui.setTheme = realSet;
+    assert.equal(existsSync(keep), true, "files must not be deleted when the settings reset fails");
+    assert.ok(notices.some(([m, type]) => type === "error" && m.includes("boom")));
+    notices.length = 0;
+    // Repeated randomizations do not add files.
+    const before = readdirSync(themesDir).sort();
+    for (let i = 0; i < 5; i++) await command("randomize", ctx);
+    assert.deepEqual(readdirSync(themesDir).sort(), before, "randomize must not accumulate theme files");
+    shutdown();
+    console.log("OK: contextual preview, narrow widths, scrolling, demo hide/show, randomize, system mode, saturation minimum 20, persistence, reload/new, no theme-file accumulation, legacy migration");
   } finally { rmSync(root, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
