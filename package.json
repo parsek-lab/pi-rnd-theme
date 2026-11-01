@@ -1,6 +1,6 @@
 {
   "name": "pi-rnd-theme",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Pi extension: generate a random color palette for each working directory",
   "license": "AGPL-3.0-only",
   "keywords": [
